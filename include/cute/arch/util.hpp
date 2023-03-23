@@ -69,6 +69,11 @@ cast_smem_ptr_to_uint(void const* const ptr)
 
   return __nvvm_get_smem_pointer(ptr);
 
+#elif defined(__clang__) && defined(__CUDA__) && defined(__CUDA_ARCH__)
+
+  // Need to convert generic pointer to the shared memory pointer to not bloat the code.
+  return static_cast<uint32_t>(__cvta_generic_to_shared(ptr));
+
 #elif defined(__CUDA_ARCH__)
 
   uint32_t smem_ptr;
