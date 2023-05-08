@@ -16,6 +16,7 @@
 #include "cutlass/numeric_types.h"
 #include "cutlass/tensor_ref.h"
 #include "cutlass/transform/threadblock/predicated_tile_access_iterator.h"
+#include "cutlass/util/command_line.h"
 #include "cutlass/util/distribution.h"
 #include "cutlass/util/host_tensor.h"
 #include "cutlass/util/reference/host/gemm.h"
@@ -25,16 +26,9 @@
 #include "cutlass/util/reference/host/tensor_norm.h"
 #include "cutlass/util/tensor_view_io.h"
 
-constexpr int SZ_M = 3456;
-constexpr int SZ_N = 1024;
-constexpr int SZ_K = 2048;
-
 #define TILE_M 128
 #define TILE_N 128
 #define TILE_K 32
-
-dim3 grid(SZ_M / TILE_M, SZ_M / TILE_N);
-dim3 block(32, TILE_N / 32, 1);
 
 ////////////////////////////////////////////////////////////////////////////////
 ///          Typenames for CUTLASS Threadblock-level matmul.
@@ -226,13 +220,11 @@ threadblock_gemm(ElementA *lhs, int64_t size_K, ElementB *rhs, int64_t size_N,
 ////////////////////////////////////////////////////////////////////////////////
 __global__ void generated_kernel(ElementA *lhs, ElementB *rhs, ElementC *res,
                                  int64_t M, int64_t N, int64_t K) {
-  for (int64_t tm = blockIdx.x * TILE_M; tm < SZ_M;
-       tm += (gridDim.x * TILE_M)) {
-    for (int64_t tn = blockIdx.y * TILE_N; tn < SZ_N;
-         tn += (gridDim.y * TILE_N)) {
-      ElementA *plhs = &lhs[tm * SZ_K];
+  for (int64_t tm = blockIdx.x * TILE_M; tm < M; tm += (gridDim.x * TILE_M)) {
+    for (int64_t tn = blockIdx.y * TILE_N; tn < N; tn += (gridDim.y * TILE_N)) {
+      ElementA *plhs = &lhs[tm * K];
       ElementB *prhs = &rhs[tn];
-      ElementC *pres = &res[tm * SZ_N + tn];
+      ElementC *pres = &res[tm * N + tn];
       threadblock_gemm<ElementA, ElementB, ElementC, true, true>(
           plhs, K, prhs, N, pres, M, 0, 0);
     }
@@ -279,11 +271,70 @@ bool initialize_tensor(cutlass::TensorView<Element, Layout> view,
   return true;
 }
 
-int main() {
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+/// Command line options parsing
+struct Options {
+
+  bool help;
+  bool error;
+  int m, n, k;
+  Options() : help(false), error(false), m(8192), n(8192), k(8192) {}
+
+  // Parses the command line
+  void parse(int argc, char const **args) {
+    cutlass::CommandLine cmd(argc, args);
+
+    if (cmd.check_cmd_line_flag("help")) {
+      help = true;
+      return;
+    }
+
+    cmd.get_cmd_line_argument("m", m, 8192);
+    cmd.get_cmd_line_argument("n", n, 8192);
+    cmd.get_cmd_line_argument("k", k, 8192);
+  }
+
+  /// Prints the usage statement.
+  std::ostream &print_usage(std::ostream &out) const {
+
+    out << "49_hopper_with_collective_builder\n\n"
+        << "  This example showcases the use of CUTLASS's collective operation "
+           "builders to easily construct\n"
+        << "  performant kernels targeting NVIDIA's Hopper architecture.\n\n"
+        << "Options:\n\n"
+        << "  --help                      If specified, displays this usage "
+           "statement\n\n"
+        << "  --m=<int>                   Sets the M extent of the GEMM\n"
+        << "  --n=<int>                   Sets the N extent of the GEMM\n"
+        << "  --k=<int>                   Sets the K extent of the GEMM\n";
+
+    return out;
+  }
+};
+
+int main(int argc, char const **args) {
+  Options options;
+
+  options.parse(argc, args);
+
+  if (options.help) {
+    options.print_usage(std::cout) << std::endl;
+    return 0;
+  }
+
+  if (options.error) {
+    std::cerr << "Aborting execution." << std::endl;
+    return -1;
+  }
+
+  dim3 grid(options.m / TILE_M, options.n / TILE_N);
+  dim3 block(32, TILE_N / 32, 1);
+
   // CUTLASS Threadblock-level multistage matrix multiply-accumulate pipeline
   using ThreadblockMma = typename DefaultMma::ThreadblockMma;
   // Create a GEMM
-  cutlass::gemm::GemmCoord problem_size(SZ_M, SZ_N, SZ_K);
+  cutlass::gemm::GemmCoord problem_size(options.m, options.n, options.k);
 
   float alpha = 1.0f;
   float beta = 0.0f;
