@@ -26,6 +26,8 @@
 #include "cutlass/util/reference/host/tensor_norm.h"
 #include "cutlass/util/tensor_view_io.h"
 
+#include "helper.h"
+
 #define TILE_M 128
 #define TILE_N 128
 #define TILE_K 32
@@ -278,8 +280,9 @@ struct Options {
 
   bool help;
   bool error;
-  int m, n, k;
-  Options() : help(false), error(false), m(8192), n(8192), k(8192) {}
+  int m, n, k, iterations;
+  Options()
+      : help(false), error(false), m(8192), n(8192), k(8192), iterations(100) {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -293,6 +296,7 @@ struct Options {
     cmd.get_cmd_line_argument("m", m, 8192);
     cmd.get_cmd_line_argument("n", n, 8192);
     cmd.get_cmd_line_argument("k", k, 8192);
+    cmd.get_cmd_line_argument("iterations", iterations);
   }
 
   /// Prints the usage statement.
@@ -307,10 +311,34 @@ struct Options {
            "statement\n\n"
         << "  --m=<int>                   Sets the M extent of the GEMM\n"
         << "  --n=<int>                   Sets the N extent of the GEMM\n"
-        << "  --k=<int>                   Sets the K extent of the GEMM\n";
+        << "  --k=<int>                   Sets the K extent of the GEMM\n"
+        << "  --iterations=<int>          Number of profiling iterations to "
+           "perform.\n\n";
 
     return out;
   }
+
+  double gflops(double runtime_s) const {
+    // Two flops per multiply-add
+    uint64_t flop = uint64_t(2) * m * n * k;
+    double gflop = double(flop) / double(1.0e9);
+    return gflop / runtime_s;
+  }
+};
+
+/// Result structure
+struct Result {
+  double avg_runtime_ms;
+  double gflops;
+  cutlass::Status status;
+  cudaError_t error;
+  bool passed;
+
+  Result(double avg_runtime_ms = 0, double gflops = 0,
+         cutlass::Status status = cutlass::Status::kSuccess,
+         cudaError_t error = cudaSuccess)
+      : avg_runtime_ms(avg_runtime_ms), gflops(gflops), status(status),
+        error(error), passed(false) {}
 };
 
 int main(int argc, char const **args) {
@@ -428,6 +456,27 @@ int main(int argc, char const **args) {
   generated_kernel<<<grid, block, smem_size>>>(
       lhs, rhs, res, problem_size.m(), problem_size.n(), problem_size.k());
 
+  // Run profiling loop
+  Result prof;
+  if (options.iterations > 0) {
+    GpuTimer timer;
+    timer.start();
+    for (int iter = 0; iter < options.iterations; ++iter) {
+      generated_kernel<<<grid, block, smem_size>>>(
+          lhs, rhs, res, problem_size.m(), problem_size.n(), problem_size.k());
+    }
+    timer.stop();
+
+    // Compute average runtime and GFLOPs.
+    float elapsed_ms = timer.elapsed_millis();
+    prof.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
+    prof.gflops = options.gflops(prof.avg_runtime_ms / 1000.0);
+
+    std::cout << "  Problem Size: " << options.m << 'x' << options.n << 'x'
+              << options.k << std::endl;
+    std::cout << "  Avg runtime: " << prof.avg_runtime_ms << " ms" << std::endl;
+    std::cout << "  GFLOPS: " << prof.gflops << std::endl;
+  }
   //
   // Check error code
   //
