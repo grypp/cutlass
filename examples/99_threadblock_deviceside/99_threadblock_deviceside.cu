@@ -25,9 +25,9 @@
 #include "cutlass/util/reference/host/tensor_norm.h"
 #include "cutlass/util/tensor_view_io.h"
 
-constexpr int SZ_M = 1024;
+constexpr int SZ_M = 3456;
 constexpr int SZ_N = 1024;
-constexpr int SZ_K = 128;
+constexpr int SZ_K = 2048;
 
 #define TILE_M 128
 #define TILE_N 128
@@ -380,7 +380,6 @@ int main() {
   //
   // Check error code
   //
-
   result = cudaDeviceSynchronize();
   if (result != cudaSuccess) {
     std::cerr << " kernel error: " << cudaGetErrorString(result);
