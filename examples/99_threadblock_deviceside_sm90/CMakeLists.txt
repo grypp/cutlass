@@ -30,6 +30,6 @@
 
 
 cutlass_example_add_executable(
-  99_threadblock_deviceside
-  99_threadblock_deviceside.cu
+  99_threadblock_deviceside_sm90
+  99_threadblock_deviceside_sm90.cu
   )
