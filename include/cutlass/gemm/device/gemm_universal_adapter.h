@@ -262,6 +262,7 @@ public:
     return max_active_blocks;
   }
 
+  Params get_params(){return params_;}
   /// Initializes GEMM state from arguments.
   Status
   initialize(Arguments const& args, void* workspace = nullptr, cudaStream_t stream = nullptr) {
