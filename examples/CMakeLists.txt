@@ -133,6 +133,7 @@ foreach(EXAMPLE
   50_hopper_gemm_with_epilogue_swizzle
   51_hopper_gett
   99_threadblock_deviceside
+  99_threadblock_deviceside_sm90
   )
 
   add_subdirectory(${EXAMPLE})
