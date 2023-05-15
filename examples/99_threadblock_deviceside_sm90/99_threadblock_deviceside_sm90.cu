@@ -303,8 +303,9 @@ struct Options {
   bool help;
   bool error;
   int m, n, k, iterations;
+  bool no_verify;
   Options()
-      : help(false), error(false), m(8192), n(8192), k(8192), iterations(100) {}
+      : help(false), error(false), m(2048), n(2048), k(2048), iterations(100), no_verify(false) {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -319,14 +320,14 @@ struct Options {
     cmd.get_cmd_line_argument("n", n, 8192);
     cmd.get_cmd_line_argument("k", k, 8192);
     cmd.get_cmd_line_argument("iterations", iterations);
+    cmd.get_cmd_line_argument("no_verify", no_verify);
   }
 
   /// Prints the usage statement.
   std::ostream &print_usage(std::ostream &out) const {
 
-    out << "49_hopper_with_collective_builder\n\n"
-        << "  This example showcases the use of CUTLASS's collective operation "
-           "builders to easily construct\n"
+    out << "99_threadblock_deviceside_sm90\n\n"
+        << "  This example showcases IREE + CUTLASS\n"
         << "  performant kernels targeting NVIDIA's Hopper architecture.\n\n"
         << "Options:\n\n"
         << "  --help                      If specified, displays this usage "
@@ -334,6 +335,7 @@ struct Options {
         << "  --m=<int>                   Sets the M extent of the GEMM\n"
         << "  --n=<int>                   Sets the N extent of the GEMM\n"
         << "  --k=<int>                   Sets the K extent of the GEMM\n"
+        << "  --no_verify=<bool>          Skip verify\n"
         << "  --iterations=<int>          Number of profiling iterations to "
            "perform.\n\n";
 
@@ -561,6 +563,10 @@ int main(int argc, char const **args) {
 
   matrix_C_computed.sync_host();
 
+  if(options.no_verify) {
+    printf("VERIFY: SKIPPED\n");
+    return 0;
+  }
   // VERFIY HERE
   cutlass::reference::host::Gemm<ElementA, LayoutA, ElementB, LayoutB, ElementC,
                                  LayoutC, ElementC, ElementC>
