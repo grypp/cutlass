@@ -41,7 +41,7 @@
 // Strides without batch mode
 
 template <class StrideIntT>
-cute::Stride<StrideIntT, cute::Int<1>>
+CUTE_HOST_DEVICE cute::Stride<StrideIntT, cute::Int<1>>
 make_cute_packed_stride(cute::Stride<StrideIntT, cute::Int<1>> s, cute::Shape<int,int,int> shape_MKL) {
   static_assert(std::is_integral_v<StrideIntT>,
     "Stride must have an integral type so it can be set dynamically. Static strides not supported.");
@@ -51,7 +51,7 @@ make_cute_packed_stride(cute::Stride<StrideIntT, cute::Int<1>> s, cute::Shape<in
 }
 
 template <class StrideIntT>
-cute::Stride<cute::Int<1>, StrideIntT>
+CUTE_HOST_DEVICE cute::Stride<cute::Int<1>, StrideIntT>
 make_cute_packed_stride(cute::Stride<cute::Int<1>, StrideIntT> s, cute::Shape<int,int,int> shape_MKL) {
   static_assert(std::is_integral_v<StrideIntT>,
     "Stride must have an integral type so it can be set dynamically. Static strides not supported.");
@@ -65,7 +65,7 @@ make_cute_packed_stride(cute::Stride<cute::Int<1>, StrideIntT> s, cute::Shape<in
 // Strides with batch mode
 
 template <class StrideIntT>
-cute::Stride<StrideIntT, cute::Int<1>, int64_t>
+CUTE_HOST_DEVICE cute::Stride<StrideIntT, cute::Int<1>, int64_t>
 make_cute_packed_stride(cute::Stride<StrideIntT, cute::Int<1>, int64_t> s, cute::Shape<int,int,int> shape_MKL) {
   static_assert(std::is_integral_v<StrideIntT>,
     "Stride must have an integral type so it can be set dynamically. Static strides not supported.");
@@ -82,7 +82,7 @@ make_cute_packed_stride(cute::Stride<StrideIntT, cute::Int<1>, int64_t> s, cute:
 }
 
 template <class StrideIntT>
-cute::Stride<cute::Int<1>, StrideIntT, int64_t>
+CUTE_HOST_DEVICE cute::Stride<cute::Int<1>, StrideIntT, int64_t>
 make_cute_packed_stride(cute::Stride<cute::Int<1>, StrideIntT, int64_t> s, cute::Shape<int,int,int> shape_MKL) {
   static_assert(std::is_integral_v<StrideIntT>,
     "Stride must have an integral type so it can be set dynamically. Static strides not supported.");

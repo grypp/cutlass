@@ -220,6 +220,8 @@ public:
     return GemmKernel::get_grid_shape(params);
   }
 
+  static int get_smem_size() {return GemmKernel::SharedStorageSize; }
+
   /// Computes the maximum number of active blocks per multiprocessor
   static int maximum_active_blocks(int /* smem_capacity */ = -1) {
     CUTLASS_TRACE_HOST("GemmUniversal::maximum_active_blocks()");

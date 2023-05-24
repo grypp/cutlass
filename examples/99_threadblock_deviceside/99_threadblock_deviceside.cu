@@ -30,7 +30,7 @@
 
 #define TILE_M 128
 #define TILE_N 128
-#define TILE_K 32
+#define TILE_K 64
 
 ////////////////////////////////////////////////////////////////////////////////
 ///          Typenames for CUTLASS Threadblock-level matmul.
@@ -39,25 +39,26 @@
 ///          the types for simplicity of the example)
 ////////////////////////////////////////////////////////////////////////////////
 
-using ElementA = cutlass::tfloat32_t;
-using LayoutA = cutlass::layout::RowMajor;
-using ElementB = cutlass::tfloat32_t;
-using LayoutB = cutlass::layout::RowMajor;
+using ElementA = cutlass::half_t;
+using ElementB = cutlass::half_t;
 using ElementC = float;
-using LayoutC = cutlass::layout::RowMajor;
 using ElementAccumulator = float;
+
+using LayoutA = cutlass::layout::RowMajor;
+using LayoutB = cutlass::layout::RowMajor;
+using LayoutC = cutlass::layout::RowMajor;
 
 using ThreadblockShape = cutlass::gemm::GemmShape<TILE_M, TILE_N, TILE_K>;
 using WarpShape = cutlass::gemm::GemmShape<64, 64, TILE_K>;
-using InstructionShape = cutlass::gemm::GemmShape<16, 8, 8>;
-int const kAlignmentA = 4;
-int const kAlignmentB = 4;
-int const Stages = 3;
+using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+int const kAlignmentA = 8;
+int const kAlignmentB = 8;
+int const Stages = 4;
 
 using DefaultMma = typename cutlass::gemm::threadblock::DefaultMma<
     ElementA, LayoutA, kAlignmentA, ElementB, LayoutB, kAlignmentB,
     ElementAccumulator, LayoutC, cutlass::arch::OpClassTensorOp,
-    cutlass::arch::Sm80, ThreadblockShape, WarpShape, InstructionShape, Stages,
+    cutlass::arch::Sm90, ThreadblockShape, WarpShape, InstructionShape, Stages,
     cutlass::arch::OpMultiplyAdd>;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -280,9 +281,10 @@ struct Options {
 
   bool help;
   bool error;
+  bool no_verify;
   int m, n, k, iterations;
   Options()
-      : help(false), error(false), m(8192), n(8192), k(8192), iterations(100) {}
+      : help(false),no_verify(false), error(false), m(8192), n(8192), k(8192), iterations(100) {}
 
   // Parses the command line
   void parse(int argc, char const **args) {
@@ -292,6 +294,7 @@ struct Options {
       help = true;
       return;
     }
+    if (cmd.check_cmd_line_flag("no_verify")) no_verify = true;
 
     cmd.get_cmd_line_argument("m", m, 8192);
     cmd.get_cmd_line_argument("n", n, 8192);
@@ -302,10 +305,9 @@ struct Options {
   /// Prints the usage statement.
   std::ostream &print_usage(std::ostream &out) const {
 
-    out << "49_hopper_with_collective_builder\n\n"
-        << "  This example showcases the use of CUTLASS's collective operation "
-           "builders to easily construct\n"
-        << "  performant kernels targeting NVIDIA's Hopper architecture.\n\n"
+    out << "99_threadblock_deviceside_sm90\n\n"
+        << "  This example showcases the use of CUTLASS 2.x gemm::threadblock "
+           "inside IREE generated CUDA kernel\n\n"        
         << "Options:\n\n"
         << "  --help                      If specified, displays this usage "
            "statement\n\n"
@@ -485,32 +487,34 @@ int main(int argc, char const **args) {
     std::cerr << " kernel error: " << cudaGetErrorString(result);
   }
 
-  matrix_C_computed.sync_host();
+  if(!options.no_verify) {
+    matrix_C_computed.sync_host();
 
-  // VERFIY HERE
-  cutlass::reference::host::Gemm<ElementA, LayoutA, ElementB, LayoutB, ElementC,
-                                 LayoutC, ElementC, ElementC>
-      reference_gemm;
-  reference_gemm(problem_size, ElementC(alpha), matrix_A.host_view(),
-                 matrix_B.host_view(), ElementC(beta),
-                 matrix_C_reference.host_view());
+    // VERFIY HERE
+    cutlass::reference::host::Gemm<ElementA, LayoutA, ElementB, LayoutB, ElementC,
+                                  LayoutC, ElementC, ElementC>
+        reference_gemm;
+    reference_gemm(problem_size, ElementC(alpha), matrix_A.host_view(),
+                  matrix_B.host_view(), ElementC(beta),
+                  matrix_C_reference.host_view());
 
-  bool passed = cutlass::reference::host::TensorEquals(
-      matrix_C_computed.host_view(), matrix_C_reference.host_view());
+    bool passed = cutlass::reference::host::TensorEquals(
+        matrix_C_computed.host_view(), matrix_C_reference.host_view());
 
-  if (!passed) {
-    std::cout << __FILE__ << ":" << __LINE__ << "  "
-              << "A:\n"
-              << matrix_A.host_view() << "\n"
-              << "B:\n"
-              << matrix_B.host_view() << "\n"
-              << "Reference:\n"
-              << matrix_C_reference.host_view() << "\n"
-              << "Computed:\n"
-              << matrix_C_computed.host_view() << "\n";
+    if (!passed) {
+      std::cout << __FILE__ << ":" << __LINE__ << "  "
+                << "A:\n"
+                << matrix_A.host_view() << "\n"
+                << "B:\n"
+                << matrix_B.host_view() << "\n"
+                << "Reference:\n"
+                << matrix_C_reference.host_view() << "\n"
+                << "Computed:\n"
+                << matrix_C_computed.host_view() << "\n";
+    }
+
+    printf("VERIFY: %s\n", passed ? "SUCCESS" : "FAIL");
   }
-
-  printf("VERIFY: %s\n", passed ? "SUCCESS" : "FAIL");
 
   return 0;
 }

@@ -134,6 +134,8 @@
 #include "cutlass/util/reference/device/tensor_compare.h"
 #include "cutlass/util/reference/device/tensor_fill.h"
 
+#include "helper.h"
+
 using namespace cute;
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -144,12 +146,13 @@ struct Options {
   bool help;
   bool error;
 
-  int m, n, k, l;
+  int m, n, k, l, iterations;
   float alpha, beta;
 
   Options():
     help(false),
     error(false),
+    iterations(0),
     m(2048), n(2048), k(2048), l(1),
     alpha(1.f), beta(0.f)
   { }
@@ -167,6 +170,7 @@ struct Options {
     cmd.get_cmd_line_argument("n", n, 2048);
     cmd.get_cmd_line_argument("k", k, 2048);
     cmd.get_cmd_line_argument("l", l, 1);
+    cmd.get_cmd_line_argument("iterations", iterations, 0);
     cmd.get_cmd_line_argument("alpha", alpha, 1.f);
     cmd.get_cmd_line_argument("beta", beta, 0.f);
   }
@@ -183,11 +187,37 @@ struct Options {
       << "  --n=<int>                   Sets the N extent of the GEMM\n"
       << "  --k=<int>                   Sets the K extent of the GEMM\n"
       << "  --l=<int>                   Sets the L extent (batch count) of the GEMM\n"
+      << "  --iterations=<f32>          Iterations for benchmark\n"
       << "  --alpha=<f32>               Epilogue scalar alpha\n"
       << "  --beta=<f32>                Epilogue scalar beta\n\n";
 
     return out;
   }
+
+  double gflops(double runtime_s) const {
+    uint64_t flop;
+    // Two flops per multiply-add
+    if(beta == 0.f) flop = uint64_t(2) * m * n * k;
+    // Three flops per multiply-add
+    else flop = uint64_t(3) * m * n * k;
+    double gflop = double(flop) / double(1.0e9);
+    return gflop / runtime_s;
+  }
+};
+
+/// Result structure
+struct Result {
+  double avg_runtime_ms;
+  double gflops;
+  cutlass::Status status;
+  cudaError_t error;
+  bool passed;
+
+  Result(double avg_runtime_ms = 0, double gflops = 0,
+         cutlass::Status status = cutlass::Status::kSuccess,
+         cudaError_t error = cudaSuccess)
+      : avg_runtime_ms(avg_runtime_ms), gflops(gflops), status(status),
+        error(error), passed(false) {}
 };
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -244,41 +274,46 @@ template <
   class MainloopScheduleType = cutlass::gemm::collective::KernelScheduleAuto,
   // Type of epilogue schedule to generate
   class EpilogueScheduleType = cutlass::epilogue::collective::EpilogueScheduleAuto,
+  
+  class TileShape_MNK = Shape<_64,_128,_64>,
+
+  class ClusterShape_MNK = Shape<_1,_1,_1>,
   // Number of pipeline stages to use
   class StageCountType = cutlass::gemm::collective::StageCountAuto
 >
 struct ExampleRunner {
 
   using LayoutA = cutlass::layout::RowMajor;
-  using LayoutB = cutlass::layout::ColumnMajor;
-  using LayoutC = cutlass::layout::ColumnMajor;
-  using LayoutD = cutlass::layout::ColumnMajor;
+  using LayoutB = cutlass::layout::RowMajor;
+  using LayoutC = cutlass::layout::RowMajor;
+
+  using ElementA = cutlass::half_t;
+  using ElementB = cutlass::half_t;
+  using ElementAccumulator = float;
 
   static constexpr int AlignmentA = 8;
   static constexpr int AlignmentB = 8;
   static constexpr int AlignmentC = 8;
   static constexpr int AlignmentD = 8;
 
+  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
+      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
+      ElementA, LayoutA, AlignmentA,
+      ElementB, LayoutB, AlignmentB,
+      ElementAccumulator,
+      TileShape_MNK, ClusterShape_MNK,
+      cutlass::gemm::collective::StageCountAuto,
+      MainloopScheduleType
+    >::CollectiveOp;
+
   using CollectiveEpilogue = typename cutlass::epilogue::collective::CollectiveBuilder<
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      Shape<_128,_128,_64>, Shape<_1,_1,_1>,
+      TileShape_MNK, ClusterShape_MNK,
       cutlass::epilogue::collective::EpilogueTileAuto,
       float, float,
       cutlass::half_t, LayoutC, AlignmentC,
-      cutlass::half_t, LayoutD, AlignmentD,
-      EpilogueScheduleType
-    >::CollectiveOp;
-
-  using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
-      cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
-      cutlass::half_t, LayoutA, AlignmentA,
-      cutlass::half_t, LayoutB, AlignmentB,
-      float,
-      Shape<_128,_128,_64>, Shape<_2,_1,_1>,
-      std::conditional_t<std::is_same_v<StageCountType, cutlass::gemm::collective::StageCountAuto>,
-          cutlass::gemm::collective::StageCountAutoCarveout<(int)sizeof(typename CollectiveEpilogue::SharedStorage)>,
-          StageCountType>,
-      MainloopScheduleType
+      cutlass::half_t, LayoutC, AlignmentD,
+      cutlass::epilogue::collective::EpilogueScheduleAuto
     >::CollectiveOp;
 
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
@@ -435,6 +470,22 @@ struct ExampleRunner {
       std::cerr << "Reference check failed" << std::endl;
     }
 
+    // Benchmark here
+    if(passed && options.iterations > 0) {
+      Result prof;
+      GpuTimer timer;
+      timer.start();
+      for (int iter = 0; iter < options.iterations; ++iter)
+          gemm_op.run();
+      timer.stop();
+      // Compute average runtime and GFLOPs.
+      float elapsed_ms = timer.elapsed_millis();
+      prof.avg_runtime_ms = double(elapsed_ms) / double(options.iterations);
+      prof.gflops = options.gflops(prof.avg_runtime_ms / 1000.0);
+      std::cout << "  Avg runtime: " << prof.avg_runtime_ms << " ms\t"
+                << "  GFLOPS: " << prof.gflops << std::endl;
+    }
+
     return passed;
   }
 
@@ -446,10 +497,57 @@ struct ExampleRunner {
 
 /// Helper to print a description of the example run and its result
 void print_result(const std::string& description, bool passed) {
-  std::cout << description << ": " << (passed ? "Passed" : "Failed") << std::endl;
+  std::cout << description << ": " << (passed ? "Passed" : "Failed") << "\n\n";
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
+
+template<class ctaShape, class clusterShape>
+void quickRunner(Options options, cutlass::KernelHardwareInfo hw_info) {
+  bool passed;
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelMultistage 
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelMultistage + NoSmemWarpSpecialized
+    ExampleRunner<cutlass::gemm::KernelMultistage, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> kernelmultistage;
+    passed = kernelmultistage.run(options, hw_info);
+    print_result("KernelMultistage + NoSmemWarpSpecialized + Auto State", passed);
+    
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelTma
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelTma + TmaWarpSpecialized
+    ExampleRunner<cutlass::gemm::KernelTma, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> KernelTma1;
+    passed = KernelTma1.run(options, hw_info);
+    print_result("KernelTma + NoSmemWarpSpecialized + Auto State", passed);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelTmaWarpSpecialized
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    ExampleRunner<cutlass::gemm::KernelTmaWarpSpecialized, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> ws_schedule_auto_stage_runner;
+    passed = ws_schedule_auto_stage_runner.run(options, hw_info);
+    print_result("KernelTmaWarpSpecialized + NoSmemWarpSpecialized + Auto State", passed);
+
+    // KernelTmaWarpSpecialized + TmaWarpSpecialized
+    ExampleRunner<cutlass::gemm::KernelTmaWarpSpecialized, cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> KernelTmaWarpSpecialized2;
+    passed = KernelTmaWarpSpecialized2.run(options, hw_info);
+    print_result("KernelTmaWarpSpecialized + TmaWarpSpecialized + Auto State", passed);
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    // KernelTmaWarpSpecializedPingpong
+    ///////////////////////////////////////////////////////////////////////////////////////////////////
+    ExampleRunner<
+      cutlass::gemm::KernelTmaWarpSpecializedPingpong,
+      cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> ws_pingpong_schedule_auto_stage_runner;
+    passed = ws_pingpong_schedule_auto_stage_runner.run(options, hw_info);
+    print_result("KernelTmaWarpSpecializedPingpong + TmaWarpSpecialized + Auto State", passed);
+
+    // KernelTmaWarpSpecialized + TmaWarpSpecialized
+    ExampleRunner<cutlass::gemm::KernelTmaWarpSpecializedPingpong, cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> KernelTmaWarpSpecializedPingpong2;
+    passed = KernelTmaWarpSpecializedPingpong2.run(options, hw_info);
+    print_result("KernelTmaWarpSpecializedPingpong + TmaWarpSpecialized + Auto State", passed);
+}
+
 
 int main(int argc, char const **args) {
 
@@ -501,55 +599,25 @@ int main(int argc, char const **args) {
   hw_info.device_id = 0;
   hw_info.sm_count = cutlass::KernelHardwareInfo::query_device_multiprocessor_count(hw_info.device_id);
 
-  bool passed;
+  using TileShape_MNK = Shape<_128, _128, _64>;
 
-  // This first example constructs a GEMM using the default schedule and stage count provided by
-  // the CollectiveBuilder. The scheduling policy that is expected to be most performant will be
-  // selected and the maximum number of stages that can fit in shared memory will be selected.
-  //
-  // This example is equivalent to declaring
-  //    ExampleRunner<
-  //        cutlass::gemm::collective::KernelScheduleAuto,
-  //        cutlass::epilogue::collective::EpilogueScheduleAuto,
-  //        cutlass::gemm::collective::StageCountAuto>
-  // Each of the `Auto` types indicate that the CollectiveBuilder should determine the scheduling policy and
-  // stage count. Note that the behavior of the CollectiveBuilder with `Auto` parameters is subject to change
-  // -- do not rely on `Auto` if you require a specific scheduling policy.
-  // If you opt in to a non-'Auto' schedule, make sure all collectives are built using specific, compatible schedules.
-  ExampleRunner<> auto_schedule_auto_stage_runner;
-  passed = auto_schedule_auto_stage_runner.run(options, hw_info);
-  print_result("Automatically-selected schedule and stage count", passed);
+  std::cout << "Shape<_1,_1,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_1,_1,_1>>(options, hw_info);
 
-  // One can override the stage count used in the GEMM by replacing cutlass::gemm::collective::StageCountAuto
-  // with the number of stages to use (5 in this case).
-  ExampleRunner<
-    cutlass::gemm::collective::KernelScheduleAuto,
-    cutlass::epilogue::collective::EpilogueScheduleAuto,
-    _5> auto_schedule_5_stage_runner;
+  std::cout << "Shape<_1,_2,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_1,_2,_1>>(options, hw_info);
 
-  passed = auto_schedule_5_stage_runner.run(options, hw_info);
-  print_result("Automatically-selected schedule with 5 stages", passed);
+  std::cout << "Shape<_2,_1,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_2,_1,_1>>(options, hw_info);
 
-  // One can also override the scheduling policy to use. In this case, use the KernelTma scheduling
-  // policy, which specifies that the Hopper TMA feature should be used, and we also use an epilgoue
-  // that does not use any shared memory.
-  ExampleRunner<cutlass::gemm::KernelTma, cutlass::epilogue::NoSmemWarpSpecialized> tma_schedule_auto_stage_runner;
-  passed = tma_schedule_auto_stage_runner.run(options, hw_info);
-  print_result("TMA schedule with automatically-selected stage count", passed);
+  std::cout << "Shape<_2,_2,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_2,_2,_1>>(options, hw_info);
 
-  // Here, we override the scheduling policy to use Hopper's TMA feature alongside the warp-specialized
-  // scheduling policy, and an epilgoue that does not use any shared memory.
-  ExampleRunner<cutlass::gemm::KernelTmaWarpSpecialized, cutlass::epilogue::NoSmemWarpSpecialized> ws_schedule_auto_stage_runner;
-  passed = ws_schedule_auto_stage_runner.run(options, hw_info);
-  print_result("Warp-specialized TMA schedule with automatically-selected stage count", passed);
+  std::cout << "Shape<_4,_1,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_4,_1,_1>>(options, hw_info);
 
-  // Finally, we override the scheduling policy to use Hopper's TMA feature, alongside the warp-specialized
-  // scheduling policy, TMA-based epilogue, leveraging persistent thread blocks.
-  ExampleRunner<
-    cutlass::gemm::KernelTmaWarpSpecializedPingpong,
-    cutlass::epilogue::TmaWarpSpecialized> ws_pingpong_schedule_auto_stage_runner;
-  passed = ws_pingpong_schedule_auto_stage_runner.run(options, hw_info);
-  print_result("Ping-pong warp-specialized TMA schedule with automatically-selected stage count", passed);
+  std::cout << "Shape<_1,_4,_1>." << std::endl;
+  quickRunner<TileShape_MNK, Shape<_1,_4,_1>>(options, hw_info);
 
 #endif
 

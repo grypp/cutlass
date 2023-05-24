@@ -147,7 +147,8 @@ struct ClusterLauncher {
     CUTLASS_TRACE_HOST("ClusterLauncher: Launching GPC_CLUSTER_GRID GridDims = "
         "(" << grid_dims.x << ", " << grid_dims.y << ", " << grid_dims.z << "), "
         "And ClusterDims = "
-        "(" << cluster_dims.x << ", " << cluster_dims.y << ", " << cluster_dims.z << ")\n");
+        "(" << cluster_dims.x << ", " << cluster_dims.y << ", " << cluster_dims.z << ")" << 
+        "Smem : " << smem_size << "\n");
 
     cudaError_t status = cudaLaunchKernelExC(&launch_config, kernel, kernel_params);
     Return_Status(status);
