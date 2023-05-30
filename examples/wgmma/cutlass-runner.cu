@@ -1,116 +1,3 @@
-/***************************************************************************************************
- * Copyright (c) 2023 - 2023 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this
- * list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice,
- * this list of conditions and the following disclaimer in the documentation
- * and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- **************************************************************************************************/
-
-/*! \file
-    \brief Hopper GEMM example leveraging collective operation builders.
-
-    This example showcases the use of CUTLASS's CollectiveBuilder to easily construct performant kernels
-    targeting the NVIDIA Hopper architecture.
-
-    Background and motivation
-    -------------------------
-    CUTLASS kernels are highly parameterizable via template parameters. To ease the selection of template
-    parameters, CUTLASS 2 leveraged DefaultGemmConfigurations. Given a small set of parameters, such as
-    the data types of operands and the compute capability of the GPU, DefaultGemmConfigurations defined sensible
-    defaults for the many other parameters to the kernel (e.g., warp shape, stage count).
-
-    However, DefaultGemmConfigurations leave multiple opportunities for improvement, which are addressed
-    in CUTLASS 3:
-      (1) DefaultGemmConfigurations do not allow one to use a more-performant set of parameters without
-          specifying every parameter. For example, the DefaultGemmConfigurations for GEMMs targeting
-          Ampere specify that three pipeline stages should be used regardless of the sizes of operands.
-          If one wished to increase this value, one would also need to specify all other template parameters.
-          This leaves a gap between a high-level ease-of-use interface and a lower-level detailed interface.
-      (2) A new DefaultGemmConfiguration was required for each combination of operand types, GPU architecture,
-          and operation type (e.g., Tensor Core or SIMT). This led to increased code size to cover each unique
-          configuration and a lack of extensibility from one DefaultGemmConfiguration to another.
-
-    Alongside these opportunities for improvement, the Hopper architecture offers new features that increase
-    the number of valid configurations of a kernel. In addition to the many template parameters already available
-    in CUTLASS 2 kernels, CUTLASS 3 kernels targeting Hopper also have various scheduling modes to select from that control:
-      (1) how data is to be loaded (e.g., using the Hopper TMA feature or Ampere cp.async)
-      (2) how work is to be divided among warps in a thread block (e.g., whether to use "warp specialization")
-      (3) whether persistent thread blocks should be used
-    This increased configuration space further motivates rethinking DefaultGemmConfigurations.
-
-    Introduction to the CollectiveBuilder
-    -------------------------------------
-    CUTLASS 3 introduces the CollectiveBuilder to further ease the process of selecting template parameters
-    for kernels targeting Hopper. Similar to the DefaultGemmConfigurations used in CUTLASS 2, the CollectiveBuilder
-    takes in a small set of template parameters (e.g., the data types of operands A and B). It then automatically
-    determines the data loading strategy to use depending on whether the Hopper TMA feature can be used with the provided
-    parameters. If one does not indicate a particular scheduling policy or stage count to use (by using `Auto` template
-    parameters), the CollectiveBuilder will also automatically select these.
-
-    Unlike DefaultGemmConfigurations a partial specialization of the CollectiveBuilder is not needed for many
-    configurations of operand types. Instead the CollectiveBuilder "builds" a configuration based on generic
-    properties of the specified operands, layouts, and other parameters. For example, when the stage count
-    is set to `Auto`, the CollectiveBuilder may automatically calculate the maximum number of stages that
-    will fit in shared memory given the types of operands and the thread block shape, rather than simply using
-    a single default value.
-
-    CUTLASS 3.x provides builders for both collective mainloops and epilogues. The particular implementation of
-    the collective is specified via the schedule tags that corresond to the underlying collective's
-    dispatch policy. `gemm::collective::KernelScheduleAuto` and `epilogue::collective::EpilogueScheduleAuto`
-    are special cases of these schedules that allow the builder to also decide the dispatch policy for you,
-    therefore letting the builder pick the collective specialization.
-
-    CUTLASS builders make an attempt to pick the best schedule when `Auto` is provided such that the
-    assembled collectives have the best performance, but this is not a guarantee. A user relying on `Auto`
-    may get a free performance upgrade with newer CUTLASS releases in case we can provide more optimized
-    implementations that the builder can transparently assemble for `Auto`. But a user should not rely on 
-    `Auto` if they require a specific scheduling policy and/or stage count to be used.
-
-    If a user decides to let the builders pick the collective specialization via `Auto` schedules,
-    they must be used for both mainloop and epilogue alike to ensure compatibility between the
-    chosen collectives. Additionally, if a user chooses to opt in to a specific schedule, non-`Auto`
-    schedules must be used for both mainloop and epilogue builder schedules, and these schedules
-    must be compatible.
-
-    One does not need to use the CollectiveBuilder to declare CUTLASS 3 kernels; one can still provide
-    every template parameter to the `gemm::collective::CollectiveMma`. Specifying every template parameter
-    in this manner remains the primary API for using CUTLASS 3 kernels. `CollectiveBuilder`s are
-    simply meant to be a convenience interface.
-
-    Details of this example
-    -----------------------
-    This example walks through the use of the CollectiveBuilder with various schedules and stage counts specified.
-    This example also illustrates how CUTLASS 3 GEMMs targeting Hopper automatically support batched GEMMs by simply
-    extending the problem size with an additional tensor rank.
-
-    Example usage:
-      $ ./examples/49_hopper_with_collective_builder/49_collective_builder \
-            --m=2048 --n=2048 --k=2048 --l=2
-*/
-
 #include <iostream>
 
 #include "cute/tensor.hpp"
@@ -178,9 +65,7 @@ struct Options {
   /// Prints the usage statement.
   std::ostream & print_usage(std::ostream &out) const {
 
-    out << "49_hopper_with_collective_builder\n\n"
-      << "  This example showcases the use of CUTLASS's collective operation builders to easily construct\n"
-      << "  performant kernels targeting NVIDIA's Hopper architecture.\n\n"
+    out << "runner\n\n"
       << "Options:\n\n"
       << "  --help                      If specified, displays this usage statement\n\n"
       << "  --m=<int>                   Sets the M extent of the GEMM\n"
@@ -289,7 +174,7 @@ struct ExampleRunner {
 
   using ElementA = cutlass::half_t;
   using ElementB = cutlass::half_t;
-  using ElementAccumulator = float;
+  using ElementAccumulator = cutlass::half_t;
 
   static constexpr int AlignmentA = 8;
   static constexpr int AlignmentB = 8;
@@ -310,7 +195,7 @@ struct ExampleRunner {
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
       TileShape_MNK, ClusterShape_MNK,
       cutlass::epilogue::collective::EpilogueTileAuto,
-      float, float,
+      ElementAccumulator, float,
       cutlass::half_t, LayoutC, AlignmentC,
       cutlass::half_t, LayoutC, AlignmentD,
       cutlass::epilogue::collective::EpilogueScheduleAuto
@@ -505,7 +390,7 @@ void print_result(const std::string& description, bool passed) {
 template<class ctaShape, class clusterShape>
 void quickRunner(Options options, cutlass::KernelHardwareInfo hw_info) {
   bool passed;
-#ifdef MULTISTAGE
+#ifdef KERNEL_MULTISTAGE
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // KernelMultistage 
   ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -513,7 +398,7 @@ void quickRunner(Options options, cutlass::KernelHardwareInfo hw_info) {
   ExampleRunner<cutlass::gemm::KernelMultistage, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> kernelmultistage;
   passed = kernelmultistage.run(options, hw_info);
   print_result("KernelMultistage + NoSmemWarpSpecialized + Auto State", passed);
-#elif TMA
+#elif KERNEL_TMA
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // KernelTma
   ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -521,19 +406,19 @@ void quickRunner(Options options, cutlass::KernelHardwareInfo hw_info) {
   ExampleRunner<cutlass::gemm::KernelTma, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> KernelTma1;
   passed = KernelTma1.run(options, hw_info);
   print_result("KernelTma + NoSmemWarpSpecialized + Auto State", passed);
-#elif WARPSPECIALIZED
+#elif KERNEL_WARPSPECIALIZED
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // KernelTmaWarpSpecialized
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   ExampleRunner<cutlass::gemm::KernelTmaWarpSpecialized, cutlass::epilogue::NoSmemWarpSpecialized, ctaShape, clusterShape> ws_schedule_auto_stage_runner;
   passed = ws_schedule_auto_stage_runner.run(options, hw_info);
   print_result("KernelTmaWarpSpecialized + NoSmemWarpSpecialized + Auto State", passed);
-#elif WARPSPECIALIZED_EPITMA
+#elif KERNEL_WARPSPECIALIZED_EPITMA
   // KernelTmaWarpSpecialized + TmaWarpSpecialized
   ExampleRunner<cutlass::gemm::KernelTmaWarpSpecialized, cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> KernelTmaWarpSpecialized2;
   passed = KernelTmaWarpSpecialized2.run(options, hw_info);
   print_result("KernelTmaWarpSpecialized + TmaWarpSpecialized + Auto State", passed);
-#elif PINGPONG
+#elif KERNEL_PINGPONG
   ///////////////////////////////////////////////////////////////////////////////////////////////////
   // KernelTmaWarpSpecializedPingpong
   ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -542,7 +427,7 @@ void quickRunner(Options options, cutlass::KernelHardwareInfo hw_info) {
     cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> ws_pingpong_schedule_auto_stage_runner;
   passed = ws_pingpong_schedule_auto_stage_runner.run(options, hw_info);
   print_result("KernelTmaWarpSpecializedPingpong + TmaWarpSpecialized + Auto State", passed);
-#elif PINGPONG_EPITMA
+#elif KERNEL_PINGPONG_EPITMA
   // KernelTmaWarpSpecialized + TmaWarpSpecialized
   ExampleRunner<cutlass::gemm::KernelTmaWarpSpecializedPingpong, cutlass::epilogue::TmaWarpSpecialized, ctaShape, clusterShape> KernelTmaWarpSpecializedPingpong2;
   passed = KernelTmaWarpSpecializedPingpong2.run(options, hw_info);
