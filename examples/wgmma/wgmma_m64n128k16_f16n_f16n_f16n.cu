@@ -137,6 +137,62 @@ union GmmaDescriptor {
 };
 
 // https://docs.nvidia.com/cuda/parallel-thread-execution/#asynchronous-warpgroup-level-matrix-instructions-wgmma-mma
+fma(uint64_t const &desc_a, uint64_t const &desc_b, uint32_t &d00,
+    uint32_t &d01, uint32_t &d02, uint32_t &d03, uint32_t &d04, uint32_t &d05,
+    uint32_t &d06, uint32_t &d07, uint32_t &d08, uint32_t &d09, uint32_t &d10,
+    uint32_t &d11, uint32_t &d12, uint32_t &d13, uint32_t &d14, uint32_t &d15,
+    uint32_t &d16, uint32_t &d17, uint32_t &d18, uint32_t &d19, uint32_t &d20,
+    uint32_t &d21, uint32_t &d22, uint32_t &d23, uint32_t &d24, uint32_t &d25,
+    uint32_t &d26, uint32_t &d27, uint32_t &d28, uint32_t &d29, uint32_t &d30,
+    uint32_t &d31) {
+
+  // The operation of the form D = A*B is issued when the input predicate
+  // argument scale-d is false.
+  constexpr int scale_D = 0; // `p` in PTX
+
+  // For the floating point variants of the wgmma.mma_async operation, each
+  // element of the input matrices A and B can be negated by specifying the
+  // value -1 for operands imm-scale-a and imm-scale-b respectively.  A value of
+  // 1 can be used to avoid the negate operation. The valid values of
+  // imm-scale-a and imm-scale-b  are -1 and 1.
+  constexpr int scaleA = 1;
+  constexpr int scaleB = 1;
+
+  // Matrices A and B are stored in row-major and column-major format
+  // respectively. For certain floating point variants, the input matrices A and
+  // B can be transposed by specifying the value 1 for the immediate integer
+  // arguments imm-trans-a and imm-trans-b respectively. A value of 0 can be
+  // used to avoid the transpose operation. The valid values of imm-trans-a and
+  // imm-trans-b are 0 and 1. The transpose operation is only supported for the
+  // wgmma.mma_async variants with .f16/ .bf16 types on matrices accessed from
+  // shared memory using matrix descriptors.
+  constexpr int tnspA = 0;
+  constexpr int tnspB = 1; // Switch to row-major
+#if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 900)
+  asm volatile(
+      "{\n"
+      ".reg .pred p;\n"
+      "setp.ne.b32 p, %34, 0;\n"
+      "wgmma.mma_async.sync.aligned.m64n128k16.f16.f16.f16 "
+      "{%0,  %1,  %2,  %3,  %4,  %5,  %6,  %7,  "
+      " %8,  %9,  %10, %11, %12, %13, %14, %15, "
+      " %16, %17, %18, %19, %20, %21, %22, %23, "
+      " %24, %25, %26, %27, %28, %29, %30, %31},"
+      " %32,"
+      " %33,"
+      " p,   %35, %36, %37, %38;\n"
+      "}\n"
+      : "+r"(d00), "+r"(d01), "+r"(d02), "+r"(d03), "+r"(d04), "+r"(d05),
+        "+r"(d06), "+r"(d07), "+r"(d08), "+r"(d09), "+r"(d10), "+r"(d11),
+        "+r"(d12), "+r"(d13), "+r"(d14), "+r"(d15), "+r"(d16), "+r"(d17),
+        "+r"(d18), "+r"(d19), "+r"(d20), "+r"(d21), "+r"(d22), "+r"(d23),
+        "+r"(d24), "+r"(d25), "+r"(d26), "+r"(d27), "+r"(d28), "+r"(d29),
+        "+r"(d30), "+r"(d31)
+      : "l"(desc_a), "l"(desc_b), "r"(int32_t(scale_D)), "n"(int32_t(scaleA)),
+        "n"(int32_t(scaleB)), "n"(int32_t(tnspA)), "n"(int32_t(tnspB)));
+#endif
+}
+
 inline __device__ void fma(
     // The 64-bit register operands a-desc and b-desc are the matrix descriptors
     // which represent the multiplicand matrices A and B in shared memory
@@ -178,7 +234,7 @@ inline __device__ void fma(
   // wgmma.mma_async variants with .f16/ .bf16 types on matrices accessed from
   // shared memory using matrix descriptors.
   constexpr int tnspA = 0;
-  constexpr int tnspB = 1; // Switch to row-major 
+  constexpr int tnspB = 1; // Switch to row-major
 #if !defined(__CUDA_ARCH__) || (__CUDA_ARCH__ >= 900)
   asm volatile(
       "{\n"
@@ -208,12 +264,8 @@ inline __device__ void fma(
         "+f"(d48), "+f"(d49), "+f"(d50), "+f"(d51), "+f"(d52), "+f"(d53),
         "+f"(d54), "+f"(d55), "+f"(d56), "+f"(d57), "+f"(d58), "+f"(d59),
         "+f"(d60), "+f"(d61), "+f"(d62), "+f"(d63)
-      : "l"(desc_a), "l"(desc_b), 
-        "r"(int32_t(scale_D)), 
-        "n"(int32_t(scaleA)),
-        "n"(int32_t(scaleB)), 
-        "n"(int32_t(tnspA)), 
-        "n"(int32_t(tnspB)));
+      : "l"(desc_a), "l"(desc_b), "r"(int32_t(scale_D)), "n"(int32_t(scaleA)),
+        "n"(int32_t(scaleB)), "n"(int32_t(tnspA)), "n"(int32_t(tnspB)));
 #endif
 }
 
