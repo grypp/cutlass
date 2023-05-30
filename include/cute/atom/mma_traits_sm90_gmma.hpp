@@ -292,8 +292,8 @@ make_gmma_desc(Tensor<TEngine,TLayout> const& tensor)
   } else {
     static_assert(MajorMode != GMMA::Major::MN && MajorMode != GMMA::Major::K, "Unrecognized MajorMode!");
   }
-
-#if 0
+  
+#if defined(DEBUG) && defined(__CUDA_ARCH__)
   // DEBUG and SANITY
   assert((start_address & 0b0000001111) == 0); // Must be 16B aligned (4LSB are 0) no negotiation
   assert((start_address & 0b1110000000) == 0); // Assert base_offset is 0, generalize later
@@ -301,9 +301,44 @@ make_gmma_desc(Tensor<TEngine,TLayout> const& tensor)
     print("smem_desc input     tensor: "); print(tensor.data()); print(" o "); print(tensor.layout()); print("\n");
     print("smem_desc uint128_t tensor: "); print(u128_tensor.data()); print(" o "); print(u128_tensor.layout()); print("\n");
     //print("     desc canonical layout: "); print(canonical_layout); print("\n");
+    printf("[%d] ", threadIdx.x);
     print(desc);
   }
+  __syncthreads();
+  if (threadIdx.x == 9) {
+    print("smem_desc input     tensor: "); print(tensor.data()); print(" o "); print(tensor.layout()); print("\n");
+    print("smem_desc uint128_t tensor: "); print(u128_tensor.data()); print(" o "); print(u128_tensor.layout()); print("\n");
+    //print("     desc canonical layout: "); print(canonical_layout); print("\n");
+    printf("[%d] ", threadIdx.x);
+    print(desc);
+  }
+  __syncthreads();
+  if (threadIdx.x == 32) {
+    print("smem_desc input     tensor: "); print(tensor.data()); print(" o "); print(tensor.layout()); print("\n");
+    print("smem_desc uint128_t tensor: "); print(u128_tensor.data()); print(" o "); print(u128_tensor.layout()); print("\n");
+    //print("     desc canonical layout: "); print(canonical_layout); print("\n");
+    printf("[%d] ", threadIdx.x);
+    print(desc);
+  }
+  __syncthreads();
+  if (threadIdx.x == 64) {
+    print("smem_desc input     tensor: "); print(tensor.data()); print(" o "); print(tensor.layout()); print("\n");
+    print("smem_desc uint128_t tensor: "); print(u128_tensor.data()); print(" o "); print(u128_tensor.layout()); print("\n");
+    //print("     desc canonical layout: "); print(canonical_layout); print("\n");
+    printf("[%d] ", threadIdx.x);
+    print(desc);
+  }
+  __syncthreads();
+  if (threadIdx.x == 96) {
+    print("smem_desc input     tensor: "); print(tensor.data()); print(" o "); print(tensor.layout()); print("\n");
+    print("smem_desc uint128_t tensor: "); print(u128_tensor.data()); print(" o "); print(u128_tensor.layout()); print("\n");
+    //print("     desc canonical layout: "); print(canonical_layout); print("\n");
+    printf("[%d] ", threadIdx.x);
+    print(desc);
+  }
+  __syncthreads();
 #endif
+
 
   return desc;
 }
