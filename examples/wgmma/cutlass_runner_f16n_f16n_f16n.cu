@@ -178,7 +178,6 @@ struct ExampleRunner {
 
   static constexpr int AlignmentA = 8;
   static constexpr int AlignmentB = 8;
-  static constexpr int AlignmentC = 8;
   static constexpr int AlignmentD = 8;
 
   using CollectiveMainloop = typename cutlass::gemm::collective::CollectiveBuilder<
@@ -195,8 +194,8 @@ struct ExampleRunner {
       cutlass::arch::Sm90, cutlass::arch::OpClassTensorOp,
       TileShape_MNK, ClusterShape_MNK,
       cutlass::epilogue::collective::EpilogueTileAuto,
-      ElementAccumulator, float,
-      cutlass::half_t, LayoutC, AlignmentC,
+      ElementAccumulator, ElementAccumulator,
+      cutlass::half_t, LayoutC, AlignmentD,
       cutlass::half_t, LayoutC, AlignmentD,
       cutlass::epilogue::collective::EpilogueScheduleAuto
     >::CollectiveOp;
@@ -306,12 +305,15 @@ struct ExampleRunner {
     ProblemShapeType problem_size = ProblemShapeType{options.m, options.n, options.k, options.l};
 
     initialize(problem_size);
+    
+    ElementAccumulator alpha = ElementAccumulator(options.alpha);
+    ElementAccumulator beta = ElementAccumulator(options.beta);
 
     typename Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       problem_size,
       {block_A.get(), stride_A, block_B.get(), stride_B},
-      {{options.alpha, options.beta}, block_C.get(), stride_C, block_D.get(), stride_D},
+      {{alpha, beta}, block_C.get(), stride_C, block_D.get(), stride_D},
       hw_info
     };
 
