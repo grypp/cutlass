@@ -660,6 +660,16 @@ struct SM90_64x128x16_F16F16F16_SS
       :  "l"(desc_a),
          "l"(desc_b),
          "r"(int32_t(scale_D)), "n"(int32_t(scaleA)), "n"(int32_t(scaleB)), "n"(int32_t(tnspA)), "n"(int32_t(tnspB)));
+  // if(threadIdx.x == 0) {
+  //   GmmaDescriptor* t = reinterpret_cast<GmmaDescriptor*>(desc_a);
+  //   printf("tid: %d desc: %p | %p \n", threadIdx.x, t, desc_a);
+  //   // printf("GmmaDescriptor: 0x%016" PRIx64 "\n",    t->desc_);
+  //   // printf("  start_addr :  0x%04x\n",      t->start_address_);
+  //   // printf("  leading_off:  0x%04x (%d)\n", t->leading_byte_offset_, t->leading_byte_offset_);
+  //   // printf("  stride_off :  0x%04x (%d)\n", t->stride_byte_offset_, t->stride_byte_offset_);
+  //   // printf("  base_offset:  0x%01x\n",      t->base_offset_);
+  //   // printf("  layout_type:  0x%01x (%s)\n", t->layout_type_, to_string(static_cast<GMMA::LayoutType>(t->layout_type_)));
+  // }
 #else
     CUTE_RUNTIME_ASSERT("Attempting to use SM90_64x128x16_F16F16F16_SS without CUTE_ARCH_MMA_SM90A_ENABLED");
 #endif

@@ -293,7 +293,7 @@ make_gmma_desc(Tensor<TEngine,TLayout> const& tensor)
     static_assert(MajorMode != GMMA::Major::MN && MajorMode != GMMA::Major::K, "Unrecognized MajorMode!");
   }
   
-#if defined(DEBUG) && defined(__CUDA_ARCH__)
+#if defined(DEBUG_DESCRIPTOR) && defined(__CUDA_ARCH__)
   // DEBUG and SANITY
   assert((start_address & 0b0000001111) == 0); // Must be 16B aligned (4LSB are 0) no negotiation
   assert((start_address & 0b1110000000) == 0); // Assert base_offset is 0, generalize later
