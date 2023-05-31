@@ -11,8 +11,7 @@
 .address_size 64
 
 	// .globl	_Z4testI6__halfS0_fEvPT_PT0_PT1_
-// _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smema has been demoted
-// _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smemb has been demoted
+.extern .shared .align 16 .b8 smem[];
 
 .visible .entry _Z4testI6__halfS0_fEvPT_PT0_PT1_(
 	.param .u64 _Z4testI6__halfS0_fEvPT_PT0_PT1__param_0,
@@ -25,10 +24,7 @@
 	.reg .f32 	%f<133>;
 	.reg .b32 	%r<86>;
 	.reg .b64 	%rd<143>;
-	// demoted variable
-	.shared .align 4 .b8 _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smema[4096];
-	// demoted variable
-	.shared .align 4 .b8 _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smemb[8192];
+
 
 	ld.param.u64 	%rd3, [_Z4testI6__halfS0_fEvPT_PT0_PT1__param_0];
 	ld.param.u64 	%rd4, [_Z4testI6__halfS0_fEvPT_PT0_PT1__param_1];
@@ -39,7 +35,7 @@
 
 	mov.u32 	%r2, %ntid.x;
 	cvta.to.global.u64 	%rd1, %rd3;
-	mov.u32 	%r9, _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smema;
+	mov.u32 	%r9, smem;
 	mov.u32 	%r84, %r1;
 
 $L__BB0_2:
@@ -59,7 +55,7 @@ $L__BB0_3:
 
 	mov.u32 	%r5, %ntid.x;
 	cvta.to.global.u64 	%rd2, %rd4;
-	mov.u32 	%r12, _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smemb;
+	mov.u32 	%r12, smem;
 	mov.u32 	%r85, %r1;
 
 $L__BB0_5:
@@ -68,7 +64,7 @@ $L__BB0_5:
 	ld.global.u16 	%rs2, [%rd9];
 	shl.b32 	%r11, %r85, 1;
 	add.s32 	%r13, %r12, %r11;
-	st.shared.u16 	[%r13], %rs2;
+	st.shared.u16 	[%r13+4096], %rs2;
 	add.s32 	%r85, %r85, %r5;
 	setp.lt.s32 	%p4, %r85, 2048;
 	@%p4 bra 	$L__BB0_5;
@@ -84,16 +80,16 @@ $L__BB0_6:
 	wgmma.fence.sync.aligned;
 
 	// end inline asm
-	mov.u32 	%r15, _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smema;
+	mov.u32 	%r15, smem;
 	shr.u32 	%r16, %r15, 4;
 	and.b32  	%r17, %r16, 16383;
 	cvt.u64.u32 	%rd13, %r17;
-	or.b64  	%rd10, %rd13, 4611686293305360384;
-	mov.u32 	%r18, _ZZ4testI6__halfS0_fEvPT_PT0_PT1_E5smemb;
+	or.b64  	%rd10, %rd13, 68720001024;
+	add.s32 	%r18, %r15, 4096;
 	shr.u32 	%r19, %r18, 4;
 	and.b32  	%r20, %r19, 16383;
 	cvt.u64.u32 	%rd14, %r20;
-	or.b64  	%rd11, %rd14, 4611686568187396096;
+	or.b64  	%rd11, %rd14, 34368126976;
 	mov.u32 	%r14, 0;
 	mov.f32 	%f5, %f4;
 	mov.f32 	%f6, %f4;

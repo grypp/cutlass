@@ -11,8 +11,7 @@
 .address_size 64
 
 	// .globl	_Z4testI6__halfS0_S0_EvPT_PT0_PT1_
-// _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smema has been demoted
-// _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smemb has been demoted
+.extern .shared .align 16 .b8 smem[];
 
 .visible .entry _Z4testI6__halfS0_S0_EvPT_PT0_PT1_(
 	.param .u64 _Z4testI6__halfS0_S0_EvPT_PT0_PT1__param_0,
@@ -24,10 +23,7 @@
 	.reg .b16 	%rs<69>;
 	.reg .b32 	%r<155>;
 	.reg .b64 	%rd<143>;
-	// demoted variable
-	.shared .align 4 .b8 _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smema[4096];
-	// demoted variable
-	.shared .align 4 .b8 _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smemb[8192];
+
 
 	ld.param.u64 	%rd3, [_Z4testI6__halfS0_S0_EvPT_PT0_PT1__param_0];
 	ld.param.u64 	%rd4, [_Z4testI6__halfS0_S0_EvPT_PT0_PT1__param_1];
@@ -38,7 +34,7 @@
 
 	mov.u32 	%r2, %ntid.x;
 	cvta.to.global.u64 	%rd1, %rd3;
-	mov.u32 	%r9, _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smema;
+	mov.u32 	%r9, smem;
 	mov.u32 	%r153, %r1;
 
 $L__BB0_2:
@@ -58,7 +54,7 @@ $L__BB0_3:
 
 	mov.u32 	%r5, %ntid.x;
 	cvta.to.global.u64 	%rd2, %rd4;
-	mov.u32 	%r12, _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smemb;
+	mov.u32 	%r12, smem;
 	mov.u32 	%r154, %r1;
 
 $L__BB0_5:
@@ -67,7 +63,7 @@ $L__BB0_5:
 	ld.global.u16 	%rs2, [%rd9];
 	shl.b32 	%r11, %r154, 1;
 	add.s32 	%r13, %r12, %r11;
-	st.shared.u16 	[%r13], %rs2;
+	st.shared.u16 	[%r13+2048], %rs2;
 	add.s32 	%r154, %r154, %r5;
 	setp.lt.s32 	%p4, %r154, 2048;
 	@%p4 bra 	$L__BB0_5;
@@ -87,16 +83,16 @@ $L__BB0_6:
 	wgmma.fence.sync.aligned;
 
 	// end inline asm
-	mov.u32 	%r84, _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smema;
+	mov.u32 	%r84, smem;
 	shr.u32 	%r85, %r84, 4;
 	and.b32  	%r86, %r85, 16383;
 	cvt.u64.u32 	%rd13, %r86;
-	or.b64  	%rd10, %rd13, 4611686293305360384;
-	mov.u32 	%r87, _ZZ4testI6__halfS0_S0_EvPT_PT0_PT1_E5smemb;
+	or.b64  	%rd10, %rd13, 68720001024;
+	add.s32 	%r87, %r84, 2048;
 	shr.u32 	%r88, %r87, 4;
 	and.b32  	%r89, %r88, 16383;
 	cvt.u64.u32 	%rd14, %r89;
-	or.b64  	%rd11, %rd14, 4611686568187396096;
+	or.b64  	%rd11, %rd14, 34368126976;
 	mov.u32 	%r19, %r18;
 	mov.u32 	%r20, %r18;
 	mov.u32 	%r21, %r18;
