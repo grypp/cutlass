@@ -420,15 +420,15 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
         r[17], r[18], r[19], r[20], r[21], r[22], r[23], r[24], 
         r[25], r[26], r[27], r[28], r[29], r[30], r[31]);
 #else
-      // F32 = F16 * F16 + F32
-      fma(desc_a, desc_b,
-        r[0],  r[1],  r[2],  r[3],  r[4],  r[5],  r[6],  r[7],  r[8],
-        r[9],  r[10], r[11], r[12], r[13], r[14], r[15], r[16], r[17], r[18],
-        r[19], r[20], r[21], r[22], r[23], r[24], r[25], r[26], r[27], r[28],
-        r[29], r[30], r[31], r[32], r[33], r[34], r[35], r[36], r[37], r[38],
-        r[39], r[40], r[41], r[42], r[43], r[44], r[45], r[46], r[47], r[48],
-        r[49], r[50], r[51], r[52], r[53], r[54], r[55], r[56], r[57], r[58],
-        r[59], r[60], r[61], r[62], r[63]);
+    // F32 = F16 * F16 + F32
+    fma(desc_a, desc_b,
+      r[0],  r[1],  r[2],  r[3],  r[4],  r[5],  r[6],  r[7],  r[8],
+      r[9],  r[10], r[11], r[12], r[13], r[14], r[15], r[16], r[17], r[18],
+      r[19], r[20], r[21], r[22], r[23], r[24], r[25], r[26], r[27], r[28],
+      r[29], r[30], r[31], r[32], r[33], r[34], r[35], r[36], r[37], r[38],
+      r[39], r[40], r[41], r[42], r[43], r[44], r[45], r[46], r[47], r[48],
+      r[49], r[50], r[51], r[52], r[53], r[54], r[55], r[56], r[57], r[58],
+      r[59], r[60], r[61], r[62], r[63]);
 #endif
 
   warpgroup_commit_batch();
@@ -456,19 +456,8 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
 
   /////////////////////////////////////////////////////////////////////////////////
   // Epilogue
-  if (std::is_same<ElementC, __half>::value || std::is_same<ElementC, float>::value) {
-    for (int i = 0; i < szm; i++) {      
-      acc[i * szn + threadIdx.x] = r[i];
-    }
-  } else { 
-    // for (int i = 0; i < szm; i+=2) {
-    //   uint16_t u1 = (uint16_t) regs[i] & 0x0000FFFF;
-    //   uint16_t u2 = (uint16_t) ((regs[i] & 0xFFFF0000) >> 16);
-    //   __half lower_word = __ushort_as_half(u1);
-    //   __half upper_word = __ushort_as_half(u2); 
-    //   acc[i * szn + threadIdx.x] = lower_word;
-    //   acc[(i+1) * szn + threadIdx.x] = upper_word;
-    // }
+  for (int i = 0; i < szm; i++) {      
+    acc[i * szn + threadIdx.x] = regs[i];
   }
 }
 
