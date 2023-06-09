@@ -1,3 +1,7 @@
+// Compile with
+// nvcc -w -arch=sm_90a wgmma_m64n128k16_f16n_f16n_f16n.cu -DDEBUG1 -DDEBUG2 -DDEBUG3 -DDEBUG4 -DDEBUG5 
+
+
 #include <cinttypes>
 #include <iostream>
 
@@ -6,17 +10,21 @@
 
 /////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
-constexpr int szm = 64;
-constexpr int szn = 128;
-constexpr int szk = 16;
+constexpr int sz64 = 64;
+constexpr int sz128 = 128;
+constexpr int sz16 = 16;
+constexpr int core8 = 8;
 
 __device__ void printme1(float *ptr, int m, int printingThread = 0) {
   int tid = 0;
 #if defined(__CUDA_ARCH__)
   tid = threadIdx.x;
-#endif
+  char * target = "GPU";
+#else
+  char * target = "CPU";
+#endif 
   if (tid == printingThread) {
-    printf("==-- Thread[%3d] - Tensor<%d> : ", tid, m);
+    printf("==-- %s Thread[%3d] - Tensor<%d> : ", target, tid, m);
     for (int i = 0; i < m; i++) {
       printf("%3.0f ", ptr[i]);
     }
@@ -25,12 +33,15 @@ __device__ void printme1(float *ptr, int m, int printingThread = 0) {
 }
 
 __device__ void printme1(__half *ptr, int m, int printingThread = 0) {
-  int tid = 0;
 #if defined(__CUDA_ARCH__)
-  tid = threadIdx.x;
-#endif
+  int tid = threadIdx.x;
+  char * target = "GPU";
+#else
+int tid = 0;
+  char * target = "CPU";
+#endif 
   if (tid == printingThread) {
-    printf("==-- Thread[%3d] - Tensor<%d> : ", tid, m);
+    printf("==-- %s Thread[%3d] - Tensor<%d> : ", target, tid, m);
     for (int i = 0; i < m; i++) {
       printf("%3.0f ", __half2float(ptr[i]));
     }
@@ -46,20 +57,23 @@ __host__ __device__ void printme(__half *ptr, int m, int n,
   if (until_m == 0) until_m = m;
 #if defined(__CUDA_ARCH__)
   tid = threadIdx.x;
-#endif
+  char * target = "GPU";
+#else
+  char * target = "CPU";
+#endif 
   if (tid == printingThread) {
-    printf("===--- Thread[%d] - Tensor<%d, %d>", tid, m, n);
+    printf("==-- %s Thread[%3d] - Tensor<%dx%d> : ", target, tid, m, n);
     name ? printf(" [%s]---===\n", name) : printf("---===\n");
 
     printf("\t");
     for (int i = 0; i < until_n; ++i) {
-      printf("%2d ", i);
+      printf("%3d ", i);
     }
     if (n > until_n) {
-      printf("... %2d ", (n - 1));
+      printf("... %3d ", (n - 1));
     }
     printf("\n\t");
-    for (int i = 0; i < szk; ++i) {
+    for (int i = 0; i < sz16; ++i) {
       printf("__ ");
     }
     printf("\n\n");
@@ -68,7 +82,7 @@ __host__ __device__ void printme(__half *ptr, int m, int n,
       printf("[%2d]  ", j);
       for (int i = 0; i < until_n; ++i) {
         __half val = ptr[j * n + i];
-        printf("%2.0f ", __half2float(val));
+        printf("%3.0f ", __half2float(val));
       }
       printf("\n");
     }
@@ -87,20 +101,23 @@ __host__ __device__ void printme(float *ptr, int m, int n,
   if (until_m == 0) until_m = m;
 #if defined(__CUDA_ARCH__)
   tid = threadIdx.x;
-#endif
+  char * target = "GPU";
+#else
+  char * target = "CPU";
+#endif 
   if (tid == printingThread) {
-    printf("===--- Thread[%d] - Tensor<%d, %d>", tid, m, n);
+    printf("===--- %s Thread[%d] - Tensor<%dx%d>", target, tid, m, n);
     name ? printf(" [%s]---===\n", name) : printf("---===\n");
 
     printf("\t");
     for (int i = 0; i < n; ++i) {
-      printf("%2d ", i);
+      printf("%3d ", i);
     }
     if (n > until_n) {
-      printf("... %2d ", (n - 1));
+      printf("... %3d ", (n - 1));
     }
     printf("\n\t");
-    for (int i = 0; i < szk; ++i) {
+    for (int i = 0; i < sz16; ++i) {
       printf("__ ");
     }
     printf("\n\n");
@@ -109,7 +126,7 @@ __host__ __device__ void printme(float *ptr, int m, int n,
       printf("[%2d]  ", j);
       for (int i = 0; i < until_n; ++i) {
         float val = ptr[j * n + i];
-        printf("%2.0f ", val);
+        printf("%3.0f ", val);
       }
       printf("\n");
     }
@@ -374,16 +391,34 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
 
   ElementA *smem_a_ptr = reinterpret_cast<ElementA *>(smem);
   ElementB *smem_b_ptr =
-      reinterpret_cast<ElementB *>(smem + (szm * szk * sizeof(ElementC)));
+      reinterpret_cast<ElementB *>(smem + (sz64 * sz16 * sizeof(ElementC)));
 
-  fillme(lhs, smem_a_ptr, szm, szk);
-  fillme(rhs, smem_b_ptr, szk, szn);
+  if(threadIdx.x == 0) {
+    for(int i= 0 ; i < 16; ++i) {
+      ElementA *d1 = &lhs[i * sz64];
+      int off = (i % 2 ? core8 : 0) + ((i/2) * 8 * 8 * 2);
+      ElementA *s1 = &smem_a_ptr[off];
+      // Core matrix copy 8 x 8
+      for(int t=0; t < core8; ++t) {
+        ElementA *d = &d1[t * core8];
+        ElementA *s = &s1[t * 16];
+        for(int e = 0; e < 8; ++e) {
+          s[e] = d[e];
+        }
+      }
+    }
+  }
+  fillme(lhs, smem_a_ptr, sz64, sz16);
+  fillme(rhs, smem_b_ptr, sz16, sz128);
 
   __syncthreads();
 
 #ifdef DEBUG1
-  printme(smem_a_ptr, szm, szk);
-  printme(smem_b_ptr, szk, szn);
+  printme(lhs, sz64, sz16, 0, 0,0, "Global Memory");
+  printme(rhs, sz16, sz128, 0,0,0,"Global Memory");
+
+  printme(smem_a_ptr, sz64, sz16, 0, 0,0, "Shared Memory");
+  printme(smem_b_ptr, sz16, sz128, 0,0,0,"Shared Memory");
 #endif
 
   /////////////////////////////////////////////////////////////////////////////////
@@ -392,30 +427,17 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
   // Create Matrix descriptors
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
 
-  // Matrix-LHS [64, 16]
-  // GmmaDescriptor: 0x0000001000080040
-  // start_addr :  0x0040
-  // leading_off:  0x0008 (8)           => 8 bytes distance between core matrix
-  // in K dimension stride_off :  0x0010 (16)          => 16 bytes distance
-  // between core matrix in M dimension base_offset:  0x0 layout_type:  0x0
-  // (INTERLEAVE)
   GmmaDescriptor desc_a;
   desc_a.start_address_ = cast_smem_ptr_to_uint(smem_a_ptr) >> 4;
-  desc_a.leading_byte_offset_ = uint32_t(8);
-  desc_a.stride_byte_offset_ = uint32_t(16);
+  desc_a.leading_byte_offset_ = uint32_t(16);
+  desc_a.stride_byte_offset_ = uint32_t(256);
   desc_a.base_offset_ = 0;
   desc_a.layout_type_ = uint8_t(LayoutType::INTERLEAVE);
 
-  // Matrix-RHS [16, 128]
-  // GmmaDescriptor: 0x0000000800801040
-  // start_addr :  0x1040
-  // leading_off:  0x0080 (128)       => 128 bytes distance between core matrix
-  // in N dimension stride_off :  0x0008 (8)         => 8 bytes distance between
-  // core matrix in K dimension base_offset:  0x0 layout_type:  0x0 (INTERLEAVE)
   GmmaDescriptor desc_b;
   desc_b.start_address_ = (cast_smem_ptr_to_uint(smem_b_ptr) >> 4);
-  desc_b.leading_byte_offset_ = uint32_t(128);
-  desc_b.stride_byte_offset_ = uint32_t(8);
+  desc_b.leading_byte_offset_ = uint32_t(2048);
+  desc_b.stride_byte_offset_ = uint32_t(16);
   desc_b.base_offset_ = 0;
   desc_b.layout_type_ = uint8_t(LayoutType::INTERLEAVE);
 
@@ -428,7 +450,7 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
 #endif
 
   // Result registers
-  ElementC regs[szm] = {ElementC(0)};
+  ElementC regs[sz64] = {ElementC(0)};
 #ifndef F32
   uint32_t *r = reinterpret_cast<uint32_t *>(&regs);
 #else
@@ -540,30 +562,32 @@ __global__ void test(ElementA *lhs, ElementB *rhs, ElementC *acc) {
   warpgroup_fence_operand(r[0]);
 
 #ifdef DEBUG3
-  printme1(regs, szm, 0);
+  if(threadIdx.x==0)
+    printf("\nProduct of some threads after wgmma.mma_async\n");
+  printme1(regs, sz64, 0);
   __syncthreads();
-  printme1(regs, szm, 1);
+  printme1(regs, sz64, 1);
   __syncthreads();
-  printme1(regs, szm, 16);
+  printme1(regs, sz64, 16);
   __syncthreads();
-  printme1(regs, szm, 32);
+  printme1(regs, sz64, 32);
   __syncthreads();
-  printme1(regs, szm, 48);
+  printme1(regs, sz64, 48);
   __syncthreads();
-  printme1(regs, szm, 64);
+  printme1(regs, sz64, 64);
   __syncthreads();
-  printme1(regs, szm, 80);
+  printme1(regs, sz64, 80);
   __syncthreads();
-  printme1(regs, szm, 96);
+  printme1(regs, sz64, 96);
   __syncthreads();
-  printme1(regs, szm, 112);
+  printme1(regs, sz64, 112);
   __syncthreads();
 #endif
 
   /////////////////////////////////////////////////////////////////////////////////
   // Epilogue
-  for (int i = 0; i < szm; i++) {
-    acc[i * szn + threadIdx.x] = regs[i];
+  for (int i = 0; i < sz64; i++) {
+    acc[i * sz128 + threadIdx.x] = regs[i];
   }
 }
 
@@ -592,10 +616,10 @@ T *malloc_managed() {
 
 template <class ElementA, class ElementB, class ElementC>
 __global__ void reference(ElementA *lhs, ElementB *rhs, ElementC *acc) {
-  for (int i = 0; i < szm; i++) {
-    for (int j = threadIdx.x; j < szn; j += blockDim.x) {
-      for (int k = 0; k < szk; ++k) {
-        acc[i * szn + j] += ElementC(lhs[i * szk + k] * rhs[k * szn + j]);
+  for (int i = 0; i < sz64; i++) {
+    for (int j = threadIdx.x; j < sz128; j += blockDim.x) {
+      for (int k = 0; k < sz16; ++k) {
+        acc[i * sz128 + j] += ElementC(lhs[i * sz16 + k] * rhs[k * sz128 + j]);
       }
     }
   }
@@ -604,10 +628,10 @@ __global__ void reference(ElementA *lhs, ElementB *rhs, ElementC *acc) {
 template <class ElementC>
 bool verify(ElementC *acc, ElementC *ref_acc) {
   bool passed = true;
-  for (int i = 0; i < szm; i++) {
-    for (int j = 0; j < szn; j++) {
-      if (__half2float(acc[i * szn + j]) !=
-          __half2float(ref_acc[i * szn + j])) {
+  for (int i = 0; i < sz64; i++) {
+    for (int j = 0; j < sz128; j++) {
+      if (__half2float(acc[i * sz128 + j]) !=
+          __half2float(ref_acc[i * sz128 + j])) {
         passed = false;
       }
     }
@@ -629,33 +653,38 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 
 int main() {
   // Allocate memory
-  __half *lhs = malloc_managed<__half>(szm * szk);
-  __half *rhs = malloc_managed<__half>(szn * szk);
+  __half *lhs = malloc_managed<__half>(sz64 * sz16);
+  __half *rhs = malloc_managed<__half>(sz128 * sz16);
 #ifdef F32
   using ElementC = float;
 #else
   using ElementC = __half;
 #endif
-  ElementC *acc = malloc_managed<ElementC>(szn * szm);
-  ElementC *ref_acc = malloc_managed<ElementC>(szn * szm);
-  for (int i = 0; i < szn * szm; i++) {
+  ElementC *acc = malloc_managed<ElementC>(sz128 * sz64);
+  ElementC *ref_acc = malloc_managed<ElementC>(sz128 * sz64);
+  for (int i = 0; i < sz128 * sz64; i++) {
     ref_acc[i] = ElementC(0);
     acc[i] = ElementC(0);
   }
 
   // Initialize data
-  for (int i = 0; i < szm; i++)
-    for (int j = 0; j < szk; j++) {
-      // lhs[i * szk + j] = __float2half((j+i*10)%30);
-      if (i == 1) lhs[i * szk + j] = __float2half(2);
+  for (int i = 0; i < sz64; i++) {
+    for (int j = 0; j < sz16; j++) {
+      // lhs[i * sz16 + j] = __float2half((j+i*10)%30);
+      lhs[i * sz16 + j] = __float2half((i * sz16 + j) % 32);
+      // lhs[i * sz16 + j] = __float2half(2);
+    }
+  }
+  for (int i = 0; i < sz16; i++)
+    for (int j = 0; j < sz128; j++) {
+      // rhs[i * sz128 + j] = __float2half((j+i)%30);      
+      rhs[i * sz128 + j] = __float2half(1);
     }
 
-  for (int i = 0; i < szk; i++)
-    for (int j = 0; j < szn; j++) {
-      // rhs[i * szn + j] = __float2half((j+i)%30);
-      // rhs[i * szn + j] = __float2half(2);
-      if (j == 1) rhs[i * szn + j] = __float2half(10);
-    }
+#ifdef DEBUG5
+  printme(lhs, sz64, sz16);
+  printme(rhs, sz16, sz128);
+#endif
 
   // Luanch a kernel for warpgroup level GEMM
   int smem_size = 227 << 10;
@@ -676,14 +705,11 @@ int main() {
   cudaDeviceSynchronize();
   gpuErrchk(cudaPeekAtLastError());
 
-#ifdef DEBUG5
-  printme(lhs, szm, szk);
-  printme(rhs, szk, szn);
-#endif
+
 
   if (!verify(ref_acc, acc)) {
-    printme(ref_acc, szm, szn, 0, 32, 4, "Reference");
-    printme(acc, szm, szn, 0, 32, 4, "Result");
+    printme(ref_acc, sz64, sz128, 0, 32, 4, "CPU REFERENCE");
+    printme(acc, sz64, sz128, 0, 32, 4, "GPU RESULT");
   }
 
   return 0;
